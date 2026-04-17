@@ -161,9 +161,9 @@ class BaseScraper(ABC):
 
     def write_jsonl(self, listings: Iterable[Listing], output_path: str) -> None:
         """Write *listings* to a JSON Lines file at *output_path*."""
-        with open(output_path, "w") as fh:
+        with open(output_path, "w", encoding="utf-8") as fh:
             for listing in listings:
-                fh.write(json.dumps(listing.__dict__) + "\n")
+                fh.write(json.dumps(listing.__dict__, ensure_ascii=False) + "\n")
 
     # ------------------------------------------------------------------
     # Playwright locator helpers (generic, reusable by any subclass)

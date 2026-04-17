@@ -117,7 +117,7 @@ class Checkpoint:
             "ts": datetime.now(timezone.utc).isoformat(),
         }
         with self._status_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(event) + "\n")
+            fh.write(json.dumps(event, ensure_ascii=False) + "\n")
             fh.flush()
 
         self._status[prompt.query] = status
@@ -168,7 +168,7 @@ class Checkpoint:
         with self._path.open("a", encoding="utf-8") as fh:
             for listing in listings:
                 record = {**listing.__dict__, "query": prompt.query}
-                fh.write(json.dumps(record) + "\n")
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
             fh.flush()
 
         logger.info(
