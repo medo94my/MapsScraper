@@ -219,7 +219,7 @@ class MapsScraper(BaseScraper):
                 if listing is None:
                     continue
 
-                listing_key = f"{listing.name}_{listing.lat}_{listing.lon}"
+                listing_key = self.normalizer.dedupe_key(listing)
                 if listing_key not in global_seen_keys:
                     global_seen_keys.add(listing_key)
                     listings.append(listing)
