@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Abstract base class for all scrapers in the task package.
+
+Concrete scrapers must implement the ``scrape`` coroutine.  All other shared
+infrastructure (sync entry-point, prompt I/O, JSONL output, and Playwright
+locator helpers) lives here so that new scrapers only need to provide the
+site-specific extraction logic.
+"""
+import asyncio
+import json
+import pathlib
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Iterable, Optional
+
+from task.error import MissingPromptFile, WrongPromptFile
+from task.logger import get_logger
+from task.models import Listing, Prompt
+
+if TYPE_CHECKING:
+    from task.checkpoint import Checkpoint
+
+
+logger = get_logger("task.base")
+
+
+class BaseScraper(ABC):
+    """Abstract base for Playwright-based scrapers.
+
+    Subclasses must implement :meth:`scrape`.
+    """
+
+    def __init__(self, headless: bool = False) -> None:
+        self.headless = headless
+
+    # ------------------------------------------------------------------
+    # Abstract interface
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def scrape(self, prompts: list[Prompt], limit: int) -> list[Listing]:
+        """Run the scraper for *prompts* and return up to *limit* listings each."""
+
+    # ------------------------------------------------------------------
+    # Sync entry-point
+    # ------------------------------------------------------------------
+
+    def run(
+        self,
+        prompts: Iterable[Prompt],
+        limit: int = 10,
+        checkpoint: Optional["Checkpoint"] = None,
+    ) -> list[Listing]:
+        """Synchronous wrapper around :meth:`scrape` for use outside async contexts.
+
+        When *checkpoint* is provided the run is resumable: already-completed
+        prompts are skipped and each prompt's results are flushed to disk
+        immediately after it finishes, so a crash loses at most one prompt's
+        worth of work.
+        """
+        prompts_list = list(prompts)
+        if not prompts_list:
+            return []
+
+        if checkpoint is not None:
+            return self._run_with_checkpoint(prompts_list, limit, checkpoint)
+
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(self.scrape(prompts_list, limit))
+        except Exception:
+            logger.exception("An error occurred during scraping")
+            return []
+
+    def _run_with_checkpoint(
+        self,
+        prompts: list[Prompt],
+        limit: int,
+        checkpoint: "Checkpoint",
+    ) -> list[Listing]:
+        """Process prompts one-by-one with explicit checkpoint lifecycle events."""
+        remaining = checkpoint.filter_prompts(prompts)
+        if not remaining:
+            logger.info("All prompts already checkpointed — nothing to do")
+            return []
+
+        all_listings: list[Listing] = []
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        for prompt in remaining:
+            checkpoint.mark_started(prompt)
+            try:
+                batch = loop.run_until_complete(self.scrape([prompt], limit))
+                checkpoint.save_listings(prompt, batch)
+                checkpoint.mark_succeeded(prompt)
+            except Exception:
+                logger.exception("Failed to scrape prompt '%s' — skipping", prompt.query)
+                checkpoint.mark_failed(prompt, reason="scrape_exception")
+                batch = []
+            all_listings.extend(batch)
+
+        return all_listings
+
+    # ------------------------------------------------------------------
+    # Prompt I/O helpers
+    # ------------------------------------------------------------------
+
+    def read_prompt_file(self, file_path: str) -> list[Prompt]:
+        """Read newline-delimited prompts from *file_path*.
+
+        Raises :class:`~task.error.MissingPromptFile` when the file does not
+        exist and :class:`~task.error.WrongPromptFile` when it is empty.
+        """
+        prompt_path = pathlib.Path(file_path)
+
+        # Convenience: if the caller passes "prompts.txt" and the file lives
+        # under an "inputs/" sub-directory, resolve it automatically.
+        if not prompt_path.exists() and prompt_path.name == "prompts.txt":
+            candidate = prompt_path.parent / "inputs" / "prompts.txt"
+            if candidate.exists():
+                prompt_path = candidate
+
+        if not prompt_path.exists():
+            raise MissingPromptFile(file_path)
+
+        raw = prompt_path.read_text().splitlines()
+        prompts = [Prompt(query=line) for line in raw if line.strip()]
+        if not prompts:
+            raise WrongPromptFile(file_path)
+        return prompts
+
+    # ------------------------------------------------------------------
+    # Output helpers
+    # ------------------------------------------------------------------
+
+    def write_jsonl(self, listings: Iterable[Listing], output_path: str) -> None:
+        """Write *listings* to a JSON Lines file at *output_path*."""
+        with open(output_path, "w") as fh:
+            for listing in listings:
+                fh.write(json.dumps(listing.__dict__) + "\n")
+
+    # ------------------------------------------------------------------
+    # Playwright locator helpers (generic, reusable by any subclass)
+    # ------------------------------------------------------------------
+
+    async def _safe_text(self, locator) -> str:
+        """Return trimmed text content, or ``""`` when the locator has no match."""
+        if await locator.count() == 0:
+            return ""
+        value = await locator.text_content()
+        return (value or "").strip()
+
+    async def _safe_attr(self, locator, attr: str, timeout: int | None = None) -> str:
+        """Return an attribute value with a guarded timeout to avoid hard failures."""
+        if await locator.count() == 0:
+            return ""
+        try:
+            kwargs = {"timeout": timeout} if timeout is not None else {}
+            value = await locator.get_attribute(attr, **kwargs)
+            return (value or "").strip()
+        except Exception:
+            return ""
