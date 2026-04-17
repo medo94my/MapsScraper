@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import asyncio
+import re
 from urllib.parse import quote
+
+from playwright.async_api import async_playwright
 
 from task.base import BaseScraper
 from task.logger import get_logger
@@ -164,13 +167,6 @@ class MapsScraper(BaseScraper):
         ))
 
     async def scrape(self, prompts: list[Prompt], limit: int) -> list[Listing]:
-        try:
-            from playwright.async_api import async_playwright
-        except ImportError as exc:
-            raise ImportError(
-                "Playwright is not installed. Please install it using 'pip install playwright' and run 'playwright install' to set up the browsers."
-            ) from exc
-
         all_listings: list[Listing] = []
         global_seen_keys: set[str] = set()
         seen_keys_lock = asyncio.Lock()
@@ -180,7 +176,7 @@ class MapsScraper(BaseScraper):
             try:
                 if self.max_concurrency <= 1 or len(prompts) <= 1:
                     for prompt in prompts:
-                        listings = self._srape_single_prompt(
+                        listings = self._scrape_single_prompt(
                             browser,
                             prompt,
                             limit,
@@ -193,7 +189,7 @@ class MapsScraper(BaseScraper):
 
                     async def scrape_prompt(prompt: Prompt):
                         async with semaphore:
-                            return await self._srape_single_prompt(
+                            return await self._scrape_single_prompt(
                                 browser,
                                 prompt,
                                 limit,
@@ -219,18 +215,15 @@ class MapsScraper(BaseScraper):
                 logger.exception("An error occurred while scraping")
             return all_listings
 
+    _COORD_RE = re.compile(r"!3d(-?[\d.]+)!4d(-?[\d.]+)")
+
     def extract_coordinates(self, link_data: str) -> tuple[float, float]:
-        lat = (
-            link_data.split("!3d")[1].split("!4d")[0]
-            if "!3d" in link_data and "!4d" in link_data
-            else None
-        )
-        lon = link_data.split("!4d")[1].split("!")[0] if "!4d" in link_data else None
-        if lat and lon:
-            return (float(lat), float(lon))
+        m = self._COORD_RE.search(link_data)
+        if m:
+            return (float(m.group(1)), float(m.group(2)))
         return (0.0, 0.0)
 
-    async def _srape_single_prompt(
+    async def _scrape_single_prompt(
         self,
         browser,
         prompt: Prompt,
@@ -241,7 +234,7 @@ class MapsScraper(BaseScraper):
         """Scrape a single prompt and return listings."""
         listings: list[Listing] = []
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
         page = await context.new_page()
         detail_page = await context.new_page()

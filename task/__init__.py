@@ -7,15 +7,15 @@ from task.progress import ProgressReporter
 from task.scraper import MapsScraper
 
 __all__ = [
-	"BaseScraper",
-	"Checkpoint",
-	"ProgressReporter",
-	"ScraperError",
-	"MissingPromptFile",
-	"WrongPromptFile",
-	"Prompt",
-	"Listing",
-	"BaseNormalizer",
-	"ListingNormalizer",
-	"MapsScraper",
+    "BaseScraper",
+    "Checkpoint",
+    "ProgressReporter",
+    "ScraperError",
+    "MissingPromptFile",
+    "WrongPromptFile",
+    "Prompt",
+    "Listing",
+    "BaseNormalizer",
+    "ListingNormalizer",
+    "MapsScraper",
 ]

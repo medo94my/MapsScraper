@@ -5,7 +5,6 @@ If Rich is not installed, falls back to standard logging.
 """
 import time
 from datetime import timedelta
-from typing import Optional
 
 from task.logger import get_logger
 from task.models import Prompt

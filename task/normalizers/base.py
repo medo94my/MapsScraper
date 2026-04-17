@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlsplit, urlunsplit
 class BaseNormalizer:
     """Reusable text and URL normalization helpers."""
 
-    _TRACKING_QUERY_KEYS = {
+    _TRACKING_QUERY_KEYS: frozenset[str] = frozenset({
         "fbclid",
         "gclid",
         "igshid",
@@ -18,7 +18,7 @@ class BaseNormalizer:
         "source",
         "usg",
         "ved",
-    }
+    })
 
     _SCRIPT_BOUNDARY_RE = re.compile(
         r"(?<=[A-Za-z])(?=[\u0600-\u06FF])|(?<=[\u0600-\u06FF])(?=[A-Za-z])"

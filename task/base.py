@@ -107,6 +107,7 @@ class BaseScraper(ABC):
         show_progress: bool = True,
     ) -> list[Listing]:
         """Process prompts with checkpoint lifecycle events and bounded concurrency."""
+        loop = None
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -120,7 +121,8 @@ class BaseScraper(ABC):
             )
         finally:
             try:
-                loop.close()
+                if loop is not None:
+                    loop.close()
             except Exception:
                 pass
 
