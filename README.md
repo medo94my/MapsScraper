@@ -1,108 +1,98 @@
-# Take-Home Assessment: Google Maps Business Listing Utility
+# Google Maps business listing utility
 
-Build a utility program that takes the name of an input text file as an argument to the program, reads Google Maps search prompts from the input text file, and returns structured business/location listing data for each prompt entry in the file.
+This project reads search prompts, scrapes Google Maps listing data, and writes
+normalized records to `jsonl`.
 
-This exercise is about extraction from a dynamic public surface, data normalization, duplicate handling, and basic scraper reliability. It does not fully reproduce a heavily defended target, so include a short technical note on how you would harden the approach for a more hostile platform.
+The current implementation focuses on reliability for dynamic pages, duplicate
+prevention, and maintainable module boundaries.
 
-## Task
+## What it does
 
-Your implementation should:
+The scraper:
 
-- read prompts from a newline-delimited text file
-- run those searches on Google Maps
-- collect up to 30 unique businesses per prompt
-- extract useful structured data for each business
-- organize the collected data in a searchable internal data structure that you can return as an object to a user
-- write output to `jsonl`
+- reads newline-delimited prompts from a text file
+- searches each prompt on Google Maps
+- lazily loads result cards
+- extracts listing details from dedicated place pages
+- deduplicates listings with `name + lat + lon`
+- writes output in JSONL format
 
-If a prompt returns fewer than 30 businesses, return what you found and document that outcome.
+## Requirements
 
-Use any reasonable stack. Browser automation, request-based extraction, or a hybrid approach are all acceptable.
+- Python 3.10+
+- Playwright Python package
+- Playwright browser binaries
 
-## Driver
+## Setup
 
-The repository includes `task_driver.py`.
+1. Create and activate a virtual environment.
+2. Install dependencies.
+3. Install Playwright browsers.
 
-We expect to be able to run `task_driver.py` and have it work as part of your submission.
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install playwright
+playwright install
+```
 
-## Prompt Pack
+## Run
 
-The required prompt set is provided in `prompts.txt` at the repository root.
+Run the provided driver:
 
-## Data Model
+```bash
+python task_driver.py
+```
 
-Choose a schema that is useful to a downstream consumer. The output should be structured, consistent, and traceable back to the originating query and source pages.
+The driver runs built-in checks and writes output to `output.jsonl`.
 
-Collect as much useful data as you can do reliably. 
+## Data model
 
-Partial records are acceptable if they are represented consistently.
+Two dataclasses represent the core schema:
 
-## Constraints
+- `Prompt(query)`
+- `Listing(name, lat, lon, url, address, website, rating, phone)`
 
-- Do not use the Google Places API, Google Maps API, or paid third-party business data providers.
-- Do not manually assemble the dataset.
-- Do not spend time solving CAPTCHAs or bypassing login walls for this exercise.
-- Keep the implementation scoped. We are evaluating engineering decisions, not scrape volume.
+## Module structure
 
-If you encounter blocking, incomplete results, or unstable behavior, document it precisely and explain how you would address it in production.
+Code is split by responsibility:
 
-## Deliverables
+- `task/models.py`: `Prompt` and `Listing`
+- `task/error.py`: custom exception hierarchy
+- `task/logger.py`: centralized logger factory
+- `task/scraper.py`: `MapsScraper` implementation
+- `task/main.py`: backward-compatible re-exports
+- `task/__init__.py`: package exports
 
-Submit:
+`task_driver.py` still imports from `task.main`, and compatibility is preserved.
 
-- source code
-- `README.md` with setup and run instructions
-- extraction output files
-- `DESIGN.md`
-- brief notes on your process, tradeoffs, and what you would do next
+## Error handling
 
-Your repository should be runnable by another engineer without guessing at missing steps.
+Custom errors are defined in `task/error.py`:
 
-## Design Note
+- `ScraperError`: base class
+- `MissingPromptFile`: raised when prompt file path does not exist
+- `WrongPromptFile`: raised when prompt file has no usable lines
 
-In `DESIGN.md`, briefly cover:
+Each error includes the source file path in its message.
 
-1. Extraction strategy and why you chose it
-2. Brittle points and likely failure modes
-3. Process, tradeoffs, shortcuts, and dead ends
-4. Reliability for repeated runs: retries, timeouts, checkpointing, deduplication, logging, partial failure recovery
-5. Data quality: validation, drift detection, completeness, confidence
-6. How you would adapt the system to a more adversarial target such as a social media surface
-7. How you would scale or orchestrate it across many prompts or regions
-8. What you would improve with more time
+## Logging
 
-If you have suggestions for improving `task_driver.py` or the exercise contract, include them briefly here.
+Logging is configured in `task/logger.py` and used by the scraper.
 
-When discussing that, assume the current driver contract is fixed for the take-home itself.
+- logger name: `task.scraper`
+- default level: `INFO`
+- output format: timestamp, level, logger name, message
 
-## Bonus Signals
+Current logs include feed-detection status, per-prompt listing counts, and
+exception traces.
 
-These are optional, but useful if done for a clear reason and kept proportional:
+## Notes on extraction reliability
 
-- resumable runs or checkpointing
-- structured logging or simple metrics
-- containerized local setup
-- CI for tests or linting
-- stronger deduplication or entity normalization
-- useful enrichment beyond the obvious fields
-- a clear orchestration sketch for scaling the collector
-- a small fixture-based test strategy for brittle extraction logic
-- thoughtful suggestions for improving the provided driver or assessment contract
+To reduce stale UI-state issues, the scraper follows a two-stage approach:
 
-## Evaluation
+1. Collect candidate place URLs from the search results list.
+2. Open each place URL in a dedicated details page for field extraction.
 
-We will assess:
-
-- usefulness and consistency of the data model
-- correctness and completeness of the extracted data
-- quality of the extraction approach
-- useful enrichment when justified by the implementation
-- code clarity and maintainability
-- handling of failure cases, duplicates, and missing fields
-- quality of the technical write-up and tradeoff discussion
-
-We are not assessing:
-
-- codebase cosmetics
-- unnecessary infrastructure
-- large scrape volume
+This approach is slower than direct card clicking but more consistent for
+dynamic UI updates.
