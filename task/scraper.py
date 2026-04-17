@@ -4,6 +4,7 @@ from urllib.parse import quote
 from task.base import BaseScraper
 from task.logger import get_logger
 from task.models import Listing, Prompt
+from task.normalizers import ListingNormalizer
 
 
 logger = get_logger("task.scraper")
@@ -11,6 +12,10 @@ logger = get_logger("task.scraper")
 
 class MapsScraper(BaseScraper):
     """Google Maps scraper — implements :meth:`BaseScraper.scrape`."""
+
+    def __init__(self, headless: bool = False) -> None:
+        super().__init__(headless=headless)
+        self.normalizer = ListingNormalizer()
 
     async def _get_results_layout_hint(self, page) -> str:
         """Best-effort layout hint for diagnostics when feed is missing."""
@@ -141,7 +146,7 @@ class MapsScraper(BaseScraper):
         phone_text = await self._safe_text(details_panel.locator('button[data-item-id="phone"]').first)
         rating = await self._safe_text(details_panel.locator('[aria-label*="stars"]').first)
 
-        return Listing(
+        return self.normalizer.normalize_listing(Listing(
             name=name,
             address=address,
             website=website,
@@ -151,7 +156,7 @@ class MapsScraper(BaseScraper):
             lon=lon,
             url=href,
             query=query,
-        )
+        ))
 
     async def scrape(self, prompts: list[Prompt], limit: int) -> list[Listing]:
         try:
