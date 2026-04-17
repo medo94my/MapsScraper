@@ -77,7 +77,13 @@ class MapsScraper(BaseScraper):
 
         return candidates
 
-    async def _extract_listing_from_href(self, detail_page, href: str, fallback_name: str):
+    async def _extract_listing_from_href(
+        self,
+        detail_page,
+        href: str,
+        fallback_name: str,
+        query: str,
+    ):
         """Extract one Listing by opening the place URL in a dedicated details page."""
         if "/maps/place/" not in href:
             return None
@@ -115,6 +121,7 @@ class MapsScraper(BaseScraper):
             lat=lat,
             lon=lon,
             url=href,
+            query=query,
         )
 
     async def scrape(self, prompts: list[Prompt], limit: int) -> list[Listing]:
@@ -169,7 +176,12 @@ class MapsScraper(BaseScraper):
             candidates = await self._collect_place_candidates(links, limit)
 
             for href, fallback_name in candidates:
-                listing = await self._extract_listing_from_href(detail_page, href, fallback_name)
+                listing = await self._extract_listing_from_href(
+                    detail_page,
+                    href,
+                    fallback_name,
+                    prompt.query,
+                )
                 if listing is None:
                     continue
 

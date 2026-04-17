@@ -78,7 +78,7 @@ class BaseScraper(ABC):
         limit: int,
         checkpoint: "Checkpoint",
     ) -> list[Listing]:
-        """Process prompts one-by-one, saving each to *checkpoint* before moving on."""
+        """Process prompts one-by-one with explicit checkpoint lifecycle events."""
         remaining = checkpoint.filter_prompts(prompts)
         if not remaining:
             logger.info("All prompts already checkpointed — nothing to do")
@@ -89,12 +89,15 @@ class BaseScraper(ABC):
         asyncio.set_event_loop(loop)
 
         for prompt in remaining:
+            checkpoint.mark_started(prompt)
             try:
                 batch = loop.run_until_complete(self.scrape([prompt], limit))
+                checkpoint.save_listings(prompt, batch)
+                checkpoint.mark_succeeded(prompt)
             except Exception:
                 logger.exception("Failed to scrape prompt '%s' — skipping", prompt.query)
+                checkpoint.mark_failed(prompt, reason="scrape_exception")
                 batch = []
-            checkpoint.save(prompt, batch)
             all_listings.extend(batch)
 
         return all_listings

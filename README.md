@@ -46,12 +46,38 @@ python task_driver.py
 
 The driver runs built-in checks and writes output to `output.jsonl`.
 
+## Resumable runs
+
+You can wire resumable execution by passing a `Checkpoint` instance to
+`scraper.run(...)`.
+
+```python
+from task.main import Checkpoint, MapsScraper
+
+scraper = MapsScraper()
+prompts = scraper.read_prompt_file("prompts.txt")
+checkpoint = Checkpoint("output.jsonl")
+
+# Resume from the last successful prompt.
+listings = scraper.run(prompts, limit=30, checkpoint=checkpoint)
+```
+
+How it works:
+
+- Listing records are appended to `output.jsonl` as each prompt finishes.
+- Prompt lifecycle events are written to `output.jsonl.status.jsonl`.
+- On restart, only prompts with status `succeeded` are skipped.
+- Prompts with status `failed` stay retryable on the next run.
+
+When you use checkpoint mode, you do not need to call `write_jsonl()` after
+`run()`, because data is already persisted incrementally.
+
 ## Data model
 
 Two dataclasses represent the core schema:
 
 - `Prompt(query)`
-- `Listing(name, lat, lon, url, address, website, rating, phone)`
+- `Listing(name, lat, lon, url, address, website, rating, phone, query)`
 
 ## Module structure
 
