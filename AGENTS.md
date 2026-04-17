@@ -27,7 +27,8 @@ Exit code 0 = success. The driver runs four checks before the main scrape — a 
 | `task/error.py` | `ScraperError`, `MissingPromptFile`, `WrongPromptFile` |
 | `task/logger.py` | `get_logger(name)` factory — always use this, never `print()` |
 | `task/base.py` | `BaseScraper` — abstract base with `run()`, `read_prompt_file()`, `write_jsonl()`, `_safe_text()`, `_safe_attr()` |
-| `task/checkpoint.py` | `Checkpoint` — prompt-level append-only JSONL checkpoint |
+| `task/checkpoint.py` | `Checkpoint` — prompt-level append-only JSONL checkpoint with status journal |
+| `task/progress.py` | `ProgressReporter` — optional Rich-based terminal progress display (graceful fallback to plain text if Rich not installed) |
 | `task/scraper.py` | `MapsScraper(BaseScraper)` — all Google Maps-specific logic |
 | `task/main.py` | Backward-compat re-exports for `from task.main import *` |
 | `task/__init__.py` | Package-level exports |
@@ -52,7 +53,24 @@ listings = scraper.run(prompts, limit=30, checkpoint=checkpoint)
 # write_jsonl is not needed — checkpoint already wrote to disk
 ```
 
-## Extraction approach (Google Maps)
+## Progress reporting
+
+When running with checkpoint mode, progress is displayed in the terminal by default using `ProgressReporter`.
+
+```python
+# Progress display is on by default in checkpoint mode
+listings = scraper.run(prompts, limit=30, checkpoint=checkpoint, show_progress=True)
+
+# Turn it off if needed
+listings = scraper.run(prompts, limit=30, checkpoint=checkpoint, show_progress=False)
+```
+
+Progress includes:
+- Per-prompt lifecycle: started → extracted → completed (or failed)
+- Status emojis: `→` (started), `✓` (extracted/completed), `✗` (failed)
+- End-of-run summary: total prompts, skipped, completed, failed, total listings, success rate, elapsed time
+
+Rich formatting is used if installed (`pip install rich`); otherwise falls back to plain text logging.
 
 Two-stage to avoid stale live-list state:
 1. Collect `href` candidates from the search results feed (adaptive scroll loop, up to 40 rounds, stops on 5 stagnant rounds).

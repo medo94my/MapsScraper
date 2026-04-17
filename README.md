@@ -36,6 +36,12 @@ pip install playwright
 playwright install
 ```
 
+**Optional:** For rich terminal formatting during scraper runs:
+
+```bash
+pip install rich
+```
+
 ## Run
 
 Run the provided driver:
