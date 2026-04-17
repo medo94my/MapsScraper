@@ -26,17 +26,17 @@ The scraper:
 ## Setup
 
 1. Create and activate a virtual environment.
-2. Install dependencies.
+2. Install dependencies from `requirements.txt`.
 3. Install Playwright browsers.
 
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install playwright
+pip install -r requirements.txt
 playwright install
 ```
 
-**Optional:** For rich terminal formatting during scraper runs:
+**Optional:** For rich terminal formatting during scraper runs, uncomment the `rich` line in `requirements.txt` and reinstall:
 
 ```bash
 pip install rich
