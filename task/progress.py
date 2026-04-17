@@ -36,7 +36,7 @@ class ProgressReporter:
 
     def __init__(self, use_rich: bool = True) -> None:
         self.use_rich = use_rich and HAS_RICH
-        self.console = Console() if self.use_rich else None
+        self.console = Console(force_terminal=True) if self.use_rich else None
 
         self.started_count = 0
         self.completed_count = 0

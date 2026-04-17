@@ -96,7 +96,7 @@ class BaseScraper(ABC):
         all_listings: list[Listing] = []
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        reporter = ProgressReporter(use_rich=show_progress) if show_progress else None
+        reporter = ProgressReporter(use_rich=True) if show_progress else None
         run_start_time = time.time()
 
         for prompt in remaining:
