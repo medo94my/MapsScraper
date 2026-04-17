@@ -13,7 +13,7 @@ logger = get_logger("task.scraper")
 class MapsScraper(BaseScraper):
     """Google Maps scraper — implements :meth:`BaseScraper.scrape`."""
 
-    def __init__(self, headless: bool = False) -> None:
+    def __init__(self, headless: bool | None = None) -> None:
         super().__init__(headless=headless)
         self.normalizer = ListingNormalizer()
 

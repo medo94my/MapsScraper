@@ -42,6 +42,33 @@ playwright install
 pip install rich
 ```
 
+## Container setup
+
+You can build and run the scraper in Docker when you want a reproducible local
+environment with Playwright and Chromium preinstalled.
+
+Build the image from the repository root:
+
+```bash
+docker build -t maps-scraper .
+```
+
+Run the driver in the container:
+
+```bash
+docker run --rm -it maps-scraper
+```
+
+If you want the generated `output.jsonl` and any input edits to persist directly
+in your working tree, run the container with a bind mount:
+
+```bash
+docker run --rm -it -v "$PWD:/app" maps-scraper
+```
+
+The image sets `SCRAPER_HEADLESS=1`, so the fixed `task_driver.py` contract can
+run in a container without needing a display server.
+
 ## Run
 
 Run the provided driver:

@@ -8,6 +8,7 @@ site-specific extraction logic.
 """
 import asyncio
 import json
+import os
 import pathlib
 import time
 from abc import ABC, abstractmethod
@@ -31,8 +32,17 @@ class BaseScraper(ABC):
     Subclasses must implement :meth:`scrape`.
     """
 
-    def __init__(self, headless: bool = False) -> None:
+    def __init__(self, headless: bool | None = None) -> None:
+        if headless is None:
+            headless = self._env_flag("SCRAPER_HEADLESS", default=False)
         self.headless = headless
+
+    @staticmethod
+    def _env_flag(name: str, default: bool) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in {"1", "true", "yes", "on"}
 
     # ------------------------------------------------------------------
     # Abstract interface

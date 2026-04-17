@@ -1,0 +1,12 @@
+.git
+.gitignore
+.ruff_cache
+.vscode
+venv
+**/__pycache__
+output.jsonl
+output.jsonl.status.jsonl
+README-ORI..md
+TODO.md
+IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_PLAN_FROM_SCRATCH.md
