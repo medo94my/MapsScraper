@@ -3,7 +3,6 @@ inputs/
 task/__pycache__/
 .vscode/launch.json
 IMPLEMENTATION_PLAN_FROM_SCRATCH.md
-.gitignore
 IMPLEMENTATION_PLAN.md
 output.jsonl
 output.jsonl.status.jsonl
