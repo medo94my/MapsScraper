@@ -8,6 +8,7 @@ site-specific extraction logic.
 """
 import asyncio
 import json
+import os
 import pathlib
 import time
 from abc import ABC, abstractmethod
@@ -31,8 +32,26 @@ class BaseScraper(ABC):
     Subclasses must implement :meth:`scrape`.
     """
 
-    def __init__(self, headless: bool = False) -> None:
+    def __init__(
+        self,
+        headless: bool = True,
+        max_concurrency: int | None = None,
+    ) -> None:
         self.headless = headless
+        if max_concurrency is None:
+            max_concurrency = self._env_int("SCRAPER_MAX_CONCURRENCY", default=1)
+        self.max_concurrency = max(1, max_concurrency)
+
+    @staticmethod
+    def _env_int(name: str, default: int) -> int:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            logger.warning("Invalid %s value '%s'; falling back to %s", name, value, default)
+            return default
 
     # ------------------------------------------------------------------
     # Abstract interface
@@ -87,39 +106,81 @@ class BaseScraper(ABC):
         checkpoint: "Checkpoint",
         show_progress: bool = True,
     ) -> list[Listing]:
-        """Process prompts one-by-one with explicit checkpoint lifecycle events."""
+        """Process prompts with checkpoint lifecycle events and bounded concurrency."""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(
+                self._run_with_checkpoint_async(
+                    prompts=prompts,
+                    limit=limit,
+                    checkpoint=checkpoint,
+                    show_progress=show_progress,
+                )
+            )
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
+
+    async def _run_with_checkpoint_async(
+        self,
+        prompts: list[Prompt],
+        limit: int,
+        checkpoint: "Checkpoint",
+        show_progress: bool = True,
+    ) -> list[Listing]:
+        """Async checkpoint worker that runs prompts with bounded concurrency."""
         remaining = checkpoint.filter_prompts(prompts)
         if not remaining:
             logger.info("All prompts already checkpointed — nothing to do")
             return []
 
         all_listings: list[Listing] = []
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         reporter = ProgressReporter(use_rich=True) if show_progress else None
         run_start_time = time.time()
 
-        for prompt in remaining:
-            checkpoint.mark_started(prompt)
-            if reporter:
-                reporter.on_started(prompt)
+        checkpoint_lock = asyncio.Lock()
+        reporter_lock = asyncio.Lock()
+        listings_lock = asyncio.Lock()
+        semaphore = asyncio.Semaphore(self.max_concurrency)
 
-            prompt_start = time.time()
-            try:
-                batch = loop.run_until_complete(self.scrape([prompt], limit))
-                checkpoint.save_listings(prompt, batch)
-                checkpoint.mark_succeeded(prompt)
+        async def process_prompt(prompt: Prompt) -> None:
+            async with semaphore:
+                async with checkpoint_lock:
+                    checkpoint.mark_started(prompt)
+
                 if reporter:
-                    elapsed = time.time() - prompt_start
-                    reporter.on_extracted(prompt, len(batch))
-                    reporter.on_completed(prompt, len(batch), elapsed)
-            except Exception:
-                logger.exception("Failed to scrape prompt '%s' — skipping", prompt.query)
-                checkpoint.mark_failed(prompt, reason="scrape_exception")
-                if reporter:
-                    reporter.on_failed(prompt, reason="scrape_exception")
-                batch = []
-            all_listings.extend(batch)
+                    async with reporter_lock:
+                        reporter.on_started(prompt)
+
+                prompt_start = time.time()
+                try:
+                    batch = await self.scrape([prompt], limit)
+
+                    async with checkpoint_lock:
+                        checkpoint.save_listings(prompt, batch)
+                        checkpoint.mark_succeeded(prompt)
+
+                    if reporter:
+                        elapsed = time.time() - prompt_start
+                        async with reporter_lock:
+                            reporter.on_extracted(prompt, len(batch))
+                            reporter.on_completed(prompt, len(batch), elapsed)
+                except Exception:
+                    logger.exception("Failed to scrape prompt '%s' — skipping", prompt.query)
+                    async with checkpoint_lock:
+                        checkpoint.mark_failed(prompt, reason="scrape_exception")
+                    if reporter:
+                        async with reporter_lock:
+                            reporter.on_failed(prompt, reason="scrape_exception")
+                    batch = []
+
+                async with listings_lock:
+                    all_listings.extend(batch)
+
+        await asyncio.gather(*(process_prompt(prompt) for prompt in remaining))
 
         if reporter:
             total_elapsed = time.time() - run_start_time

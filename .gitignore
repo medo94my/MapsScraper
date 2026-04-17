@@ -9,3 +9,7 @@ output.jsonl.status.jsonl
 TODO.md
 README-ORI..md
 **/__pycache__/
+.playwright-mcp/
+
+.agents/
+.github/agents/

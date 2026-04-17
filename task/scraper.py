@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import asyncio
 from urllib.parse import quote
 
 from task.base import BaseScraper
@@ -13,8 +14,12 @@ logger = get_logger("task.scraper")
 class MapsScraper(BaseScraper):
     """Google Maps scraper — implements :meth:`BaseScraper.scrape`."""
 
-    def __init__(self, headless: bool = False) -> None:
-        super().__init__(headless=headless)
+    def __init__(
+        self,
+        headless: bool = False,
+        max_concurrency: int | None = None,
+    ) -> None:
+        super().__init__(headless=headless, max_concurrency=max_concurrency)
         self.normalizer = ListingNormalizer()
 
     async def _get_results_layout_hint(self, page) -> str:
@@ -168,15 +173,48 @@ class MapsScraper(BaseScraper):
 
         all_listings: list[Listing] = []
         global_seen_keys: set[str] = set()
+        seen_keys_lock = asyncio.Lock()
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
 
             try:
-                for prompt in prompts:
-                    listings = self._srape_single_prompt(
-                        browser, prompt, limit, global_seen_keys
+                if self.max_concurrency <= 1 or len(prompts) <= 1:
+                    for prompt in prompts:
+                        listings = self._srape_single_prompt(
+                            browser,
+                            prompt,
+                            limit,
+                            global_seen_keys,
+                            seen_keys_lock,
+                        )
+                        all_listings.extend(await listings)
+                else:
+                    semaphore = asyncio.Semaphore(self.max_concurrency)
+
+                    async def scrape_prompt(prompt: Prompt):
+                        async with semaphore:
+                            return await self._srape_single_prompt(
+                                browser,
+                                prompt,
+                                limit,
+                                global_seen_keys,
+                                seen_keys_lock,
+                            )
+
+                    results = await asyncio.gather(
+                        *(scrape_prompt(prompt) for prompt in prompts),
+                        return_exceptions=True,
                     )
-                    all_listings.extend(await listings)
+
+                    for prompt, result in zip(prompts, results):
+                        if isinstance(result, Exception):
+                            logger.error(
+                                "Concurrent scrape failed for prompt '%s'",
+                                prompt.query,
+                                exc_info=(type(result), result, result.__traceback__),
+                            )
+                            continue
+                        all_listings.extend(result)
             except Exception:
                 logger.exception("An error occurred while scraping")
             return all_listings
@@ -193,7 +231,12 @@ class MapsScraper(BaseScraper):
         return (0.0, 0.0)
 
     async def _srape_single_prompt(
-        self, browser, prompt: Prompt, limit: int, global_seen_keys: set[str]
+        self,
+        browser,
+        prompt: Prompt,
+        limit: int,
+        global_seen_keys: set[str],
+        seen_keys_lock: asyncio.Lock,
     ) -> list[Listing]:
         """Scrape a single prompt and return listings."""
         listings: list[Listing] = []
@@ -220,9 +263,11 @@ class MapsScraper(BaseScraper):
                     continue
 
                 listing_key = self.normalizer.dedupe_key(listing)
-                if listing_key not in global_seen_keys:
+                async with seen_keys_lock:
+                    if listing_key in global_seen_keys:
+                        continue
                     global_seen_keys.add(listing_key)
-                    listings.append(listing)
+                listings.append(listing)
             logger.info("Collected %s listings for prompt '%s'", len(listings), prompt.query)
             return listings
         except Exception:
