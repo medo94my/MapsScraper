@@ -16,3 +16,4 @@ class Listing:
     website: str = ""
     rating: str = ""
     phone: str = ""
+    query: str = ""  # originating search prompt — required for checkpointing and traceability

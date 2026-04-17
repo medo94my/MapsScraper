@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
-import asyncio
-import pathlib
-from typing import Iterable
 from urllib.parse import quote
 
-from task.error import MissingPromptFile, WrongPromptFile
+from task.base import BaseScraper
 from task.logger import get_logger
 from task.models import Listing, Prompt
 
@@ -12,29 +9,8 @@ from task.models import Listing, Prompt
 logger = get_logger("task.scraper")
 
 
-class MapsScraper:
-    def __init__(self, headless: bool = False):
-        self.headless = headless
-
-    async def _safe_text(self, locator) -> str:
-        """Return trimmed text content or empty string when the locator has no match."""
-        if await locator.count() == 0:
-            return ""
-        value = await locator.text_content()
-        return (value or "").strip()
-
-    async def _safe_attr(self, locator, attr: str, timeout: int | None = None) -> str:
-        """Return an attribute value with a guarded timeout to avoid hard failures."""
-        if await locator.count() == 0:
-            return ""
-        try:
-            if timeout is None:
-                value = await locator.get_attribute(attr)
-            else:
-                value = await locator.get_attribute(attr, timeout=timeout)
-            return (value or "").strip()
-        except Exception:
-            return ""
+class MapsScraper(BaseScraper):
+    """Google Maps scraper — implements :meth:`BaseScraper.scrape`."""
 
     async def _prepare_results_feed(self, page):
         """Move focus to results feed when available so scrolling targets the card list."""
@@ -209,45 +185,3 @@ class MapsScraper:
         finally:
             await detail_page.close()
             await context.close()
-
-    def read_prompt_file(self, file_path: str) -> list[Prompt]:
-        prompt_path = pathlib.Path(file_path)
-
-        if not prompt_path.exists() and prompt_path.name == "prompts.txt":
-            candidate_prompts = prompt_path.parent / "inputs" / "prompts.txt"
-            if candidate_prompts.exists():
-                prompt_path = candidate_prompts
-
-        if not prompt_path.exists():
-            raise MissingPromptFile(file_path)
-
-        raw_prompts = prompt_path.read_text().splitlines()
-        prompts = [
-            Prompt(query=raw_prompt)
-            for raw_prompt in raw_prompts
-            if raw_prompt.strip() != ""
-        ]
-        if len(prompts) == 0:
-            raise WrongPromptFile(file_path)
-        return prompts
-
-    def run(self, prompts: Iterable[Prompt], limit: int = 10) -> list[Listing]:
-        prompts_list = list(prompts)
-        all_listings: list[Listing] = []
-        if len(prompts_list) == 0:
-            return all_listings
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            all_listings = loop.run_until_complete(self.scrape(prompts_list, limit))
-        except Exception:
-            logger.exception("An error occurred during scraping")
-        return all_listings
-
-    def write_jsonl(self, listings: Iterable[Listing], output_path: str):
-        import json
-
-        with open(output_path, "w") as f:
-            for listing in listings:
-                json_line = json.dumps(listing.__dict__)
-                f.write(json_line + "\n")
