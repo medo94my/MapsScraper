@@ -52,6 +52,25 @@ python task_driver.py
 
 The driver runs built-in checks and writes output to `output.jsonl`.
 
+## Concurrency
+
+Prompt processing supports bounded concurrency. By default, runs are
+single-threaded at one prompt at a time.
+
+Set `SCRAPER_MAX_CONCURRENCY` to increase parallel prompt workers:
+
+```bash
+SCRAPER_MAX_CONCURRENCY=3 python task_driver.py
+```
+
+Notes:
+
+- This setting controls concurrent prompt workers.
+- Deduplication remains global across workers.
+- Checkpoint writes are synchronized so output and status journals stay
+	consistent.
+- Start with small values (for example, 2 to 4) to reduce anti-bot risk.
+
 ## Resumable runs
 
 You can wire resumable execution by passing a `Checkpoint` instance to
