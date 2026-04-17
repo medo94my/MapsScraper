@@ -9,12 +9,14 @@ site-specific extraction logic.
 import asyncio
 import json
 import pathlib
+import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Iterable, Optional
 
 from task.error import MissingPromptFile, WrongPromptFile
 from task.logger import get_logger
 from task.models import Listing, Prompt
+from task.progress import ProgressReporter
 
 if TYPE_CHECKING:
     from task.checkpoint import Checkpoint
@@ -49,6 +51,7 @@ class BaseScraper(ABC):
         prompts: Iterable[Prompt],
         limit: int = 10,
         checkpoint: Optional["Checkpoint"] = None,
+        show_progress: bool = True,
     ) -> list[Listing]:
         """Synchronous wrapper around :meth:`scrape` for use outside async contexts.
 
@@ -56,13 +59,18 @@ class BaseScraper(ABC):
         prompts are skipped and each prompt's results are flushed to disk
         immediately after it finishes, so a crash loses at most one prompt's
         worth of work.
+
+        When *show_progress* is True, progress is displayed in the terminal
+        (Rich-formatted if available, plain text otherwise).
         """
         prompts_list = list(prompts)
         if not prompts_list:
             return []
 
         if checkpoint is not None:
-            return self._run_with_checkpoint(prompts_list, limit, checkpoint)
+            return self._run_with_checkpoint(
+                prompts_list, limit, checkpoint, show_progress
+            )
 
         try:
             loop = asyncio.new_event_loop()
@@ -77,6 +85,7 @@ class BaseScraper(ABC):
         prompts: list[Prompt],
         limit: int,
         checkpoint: "Checkpoint",
+        show_progress: bool = True,
     ) -> list[Listing]:
         """Process prompts one-by-one with explicit checkpoint lifecycle events."""
         remaining = checkpoint.filter_prompts(prompts)
@@ -87,18 +96,34 @@ class BaseScraper(ABC):
         all_listings: list[Listing] = []
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        reporter = ProgressReporter(use_rich=show_progress) if show_progress else None
+        run_start_time = time.time()
 
         for prompt in remaining:
             checkpoint.mark_started(prompt)
+            if reporter:
+                reporter.on_started(prompt)
+
+            prompt_start = time.time()
             try:
                 batch = loop.run_until_complete(self.scrape([prompt], limit))
                 checkpoint.save_listings(prompt, batch)
                 checkpoint.mark_succeeded(prompt)
+                if reporter:
+                    elapsed = time.time() - prompt_start
+                    reporter.on_extracted(prompt, len(batch))
+                    reporter.on_completed(prompt, len(batch), elapsed)
             except Exception:
                 logger.exception("Failed to scrape prompt '%s' — skipping", prompt.query)
                 checkpoint.mark_failed(prompt, reason="scrape_exception")
+                if reporter:
+                    reporter.on_failed(prompt, reason="scrape_exception")
                 batch = []
             all_listings.extend(batch)
+
+        if reporter:
+            total_elapsed = time.time() - run_start_time
+            reporter.print_summary(len(prompts), total_elapsed)
 
         return all_listings
 
