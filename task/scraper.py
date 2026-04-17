@@ -12,16 +12,45 @@ logger = get_logger("task.scraper")
 class MapsScraper(BaseScraper):
     """Google Maps scraper — implements :meth:`BaseScraper.scrape`."""
 
+    async def _get_results_layout_hint(self, page) -> str:
+        """Best-effort layout hint for diagnostics when feed is missing."""
+        try:
+            place_links = await page.locator('a[href*="/maps/place/"]').count()
+            if place_links > 0:
+                return "place_links_present"
+
+            consent_form = await page.locator('form[action*="consent"]').count()
+            consent_iframe = await page.locator('iframe[src*="consent"]').count()
+            if consent_form > 0 or consent_iframe > 0:
+                return "consent_screen"
+
+            return "unknown_layout"
+        except Exception:
+            return "layout_probe_failed"
+
     async def _prepare_results_feed(self, page):
         """Move focus to results feed when available so scrolling targets the card list."""
-        feed_locator = page.locator('div[role="feed"]')
+        # Maps can render results feed late; wait briefly for either feed or links.
+        try:
+            await page.wait_for_selector(
+                'div[role="feed"], a[href*="/maps/place/"]',
+                timeout=5000,
+            )
+        except Exception:
+            pass
+
+        feed_locator = page.locator('div[role="feed"]').first
         has_feed = await feed_locator.count() > 0
         if has_feed:
             box = await feed_locator.bounding_box()
             if box:
                 await page.mouse.move(box["x"], box["y"])
         else:
-            logger.info("Feed container not found")
+            hint = await self._get_results_layout_hint(page)
+            logger.info(
+                "Results feed not present; using page-scroll fallback (layout=%s)",
+                hint,
+            )
         return feed_locator, has_feed
 
     async def _load_place_links(self, page, has_feed: bool, limit: int):
