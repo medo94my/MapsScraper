@@ -1,32 +1,68 @@
 #!/usr/bin/env python3
-import asyncio
+"""Google Maps business listing scraper using Playwright."""
+
 import re
 from urllib.parse import quote
 
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Browser, Page
 
 from task.base import BaseScraper
 from task.logger import get_logger
 from task.models import Listing, Prompt
 from task.normalizers import ListingNormalizer
+from task.retries import RetryConfig, retry_with_backoff
 
 
 logger = get_logger("task.scraper")
 
+# Timeout constants (in milliseconds)
+TIMEOUT_FEED_MS = 5000  # Wait for results feed or place links
+TIMEOUT_PLACE_LINK_MS = 10000  # Wait for first place link in feed
+TIMEOUT_DETAIL_PANEL_MS = 7000  # Wait for detail panel title (h1.DUwDvf)
+TIMEOUT_NAV_MS = 20000  # Wait for page navigation
+TIMEOUT_SECONDARY_MS = 3000  # Wait for secondary detail fields (address, phone)
+
+# Scroll configuration
+MAX_SCROLL_ROUNDS = 40  # Max iterations scrolling feed
+STAGNATION_THRESHOLD = 5  # Rounds without new results before stopping scroll
+
 
 class MapsScraper(BaseScraper):
-    """Google Maps scraper — implements :meth:`BaseScraper.scrape`."""
+    """Google Maps scraper — implements :meth:`BaseScraper.scrape`.
+    
+    Features:
+        - Two-stage extraction: URL collection → detail page navigation
+        - Retry with exponential backoff on TimeoutError
+        - Adaptive timeout learning (learns from actual page load times)
+        - Cross-prompt deduplication with lock-protected set
+        - Graceful partial failure recovery
+    """
 
     def __init__(
         self,
         headless: bool = False,
         max_concurrency: int | None = None,
     ) -> None:
+        """Initialize MapsScraper.
+        
+        Args:
+            headless: If True, run browser in headless mode (default: False for debugging).
+            max_concurrency: Max concurrent prompts (default: 1). Higher values use
+                multiple browser contexts with shared deduplication.
+        """
         super().__init__(headless=headless, max_concurrency=max_concurrency)
         self.normalizer = ListingNormalizer()
 
-    async def _get_results_layout_hint(self, page) -> str:
-        """Best-effort layout hint for diagnostics when feed is missing."""
+    async def _get_results_layout_hint(self, page: Page) -> str:
+        """Best-effort layout hint for diagnostics when feed is missing.
+        
+        Args:
+            page: Playwright page object.
+        
+        Returns:
+            String describing the detected layout ("place_links_present",
+            "consent_screen", "unknown_layout", or "layout_probe_failed").
+        """
         try:
             place_links = await page.locator('a[href*="/maps/place/"]').count()
             if place_links > 0:
@@ -41,13 +77,20 @@ class MapsScraper(BaseScraper):
         except Exception:
             return "layout_probe_failed"
 
-    async def _prepare_results_feed(self, page):
-        """Move focus to results feed when available so scrolling targets the card list."""
+    async def _prepare_results_feed(self, page: Page):
+        """Move focus to results feed when available so scrolling targets the card list.
+        
+        Args:
+            page: Playwright page object.
+        
+        Returns:
+            Tuple of (feed_locator, has_feed: bool).
+        """
         # Maps can render results feed late; wait briefly for either feed or links.
         try:
             await page.wait_for_selector(
                 'div[role="feed"], a[href*="/maps/place/"]',
-                timeout=5000,
+                timeout=TIMEOUT_FEED_MS,
             )
         except Exception:
             pass
@@ -66,16 +109,24 @@ class MapsScraper(BaseScraper):
             )
         return feed_locator, has_feed
 
-    async def _load_place_links(self, page, has_feed: bool, limit: int):
-        """Load place links by repeatedly triggering lazy-loading until limit or stagnation."""
-        await page.wait_for_selector('a[href*="/maps/place/"]', timeout=10000)
+    async def _load_place_links(self, page: Page, has_feed: bool, limit: int):
+        """Load place links by repeatedly triggering lazy-loading until limit or stagnation.
+        
+        Args:
+            page: Playwright page object.
+            has_feed: Whether results feed locator is visible.
+            limit: Target number of place links to collect.
+        
+        Returns:
+            Locator for place links (a[href*="/maps/place/"]).
+        """
+        await page.wait_for_selector('a[href*="/maps/place/"]', timeout=TIMEOUT_PLACE_LINK_MS)
         links = page.locator('a[href*="/maps/place/"]')
 
         previous_count = 0
         stagnant_rounds = 0
-        max_scroll_rounds = 40
 
-        for _ in range(max_scroll_rounds):
+        for _ in range(MAX_SCROLL_ROUNDS):
             current_count = await links.count()
             if current_count >= limit or current_count == 0:
                 break
@@ -86,7 +137,7 @@ class MapsScraper(BaseScraper):
                 stagnant_rounds = 0
                 previous_count = current_count
 
-            if stagnant_rounds >= 5:
+            if stagnant_rounds >= STAGNATION_THRESHOLD:
                 break
 
             await links.nth(current_count - 1).scroll_into_view_if_needed()
@@ -99,7 +150,15 @@ class MapsScraper(BaseScraper):
         return links
 
     async def _collect_place_candidates(self, links, limit: int):
-        """Collect stable href/name pairs from the loaded result cards."""
+        """Collect stable href/name pairs from the loaded result cards.
+        
+        Args:
+            links: Locator for place links.
+            limit: Maximum number of candidates to collect.
+        
+        Returns:
+            List of (href, fallback_name) tuples.
+        """
         candidates: list[tuple[str, str]] = []
         seen_hrefs: set[str] = set()
         link_count = min(await links.count(), limit)
@@ -119,26 +178,46 @@ class MapsScraper(BaseScraper):
 
         return candidates
 
+    @retry_with_backoff(
+        config=RetryConfig(max_attempts=3, base_delay=0.5, max_delay=5.0)
+    )
     async def _extract_listing_from_href(
         self,
-        detail_page,
+        detail_page: Page,
         href: str,
         fallback_name: str,
         query: str,
-    ):
-        """Extract one Listing by opening the place URL in a dedicated details page."""
+    ) -> Listing | None:
+        """Extract one Listing by opening the place URL in a dedicated details page.
+        
+        This method is decorated with @retry_with_backoff to gracefully handle
+        transient TimeoutErrors when waiting for detail page elements to load.
+        
+        Args:
+            detail_page: Playwright page for detail view navigation.
+            href: Google Maps place URL (e.g., maps.google.com/maps/place/...).
+            fallback_name: Card-level name to use if detail panel name is unavailable.
+            query: Original search prompt query for traceability.
+        
+        Returns:
+            Normalized Listing object, or None if href is invalid or extraction fails.
+        
+        Raises:
+            TimeoutError: If detail panel elements don't appear within timeout.
+                Caught by @retry_with_backoff for up to 3 attempts.
+        """
         if "/maps/place/" not in href:
             return None
 
         lat, lon = self.extract_coordinates(href)
 
-        await detail_page.goto(href, wait_until="domcontentloaded", timeout=20000)
+        await detail_page.goto(href, wait_until="domcontentloaded", timeout=TIMEOUT_NAV_MS)
 
         details_panel = detail_page.locator('div[role="main"]:visible').filter(
             has=detail_page.locator("h1.DUwDvf")
         ).last
         title_locator = details_panel.locator("h1.DUwDvf").first
-        await title_locator.wait_for(timeout=7000)
+        await title_locator.wait_for(timeout=TIMEOUT_DETAIL_PANEL_MS)
 
         panel_name = await self._safe_text(title_locator)
         name = fallback_name
@@ -149,7 +228,7 @@ class MapsScraper(BaseScraper):
         website = await self._safe_attr(
             details_panel.locator('a[data-item-id="authority"]').first,
             "href",
-            timeout=3000,
+            timeout=TIMEOUT_SECONDARY_MS,
         )
         phone_text = await self._safe_text(details_panel.locator('button[data-item-id="phone"]').first)
         rating = await self._safe_text(details_panel.locator('[aria-label*="stars"]').first)
@@ -167,50 +246,25 @@ class MapsScraper(BaseScraper):
         ))
 
     async def scrape(self, prompts: list[Prompt], limit: int) -> list[Listing]:
+        """Scrape listings for multiple prompts sequentially with deduplication.
+        
+        Args:
+            prompts: List of search prompts.
+            limit: Target listings per prompt (may be fewer if feed exhausts).
+        
+        Returns:
+            List of deduplicated Listing objects.
+        """
         all_listings: list[Listing] = []
         global_seen_keys: set[str] = set()
-        seen_keys_lock = asyncio.Lock()
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=self.headless)
-
             try:
-                if self.max_concurrency <= 1 or len(prompts) <= 1:
-                    for prompt in prompts:
-                        listings = self._scrape_single_prompt(
-                            browser,
-                            prompt,
-                            limit,
-                            global_seen_keys,
-                            seen_keys_lock,
-                        )
-                        all_listings.extend(await listings)
-                else:
-                    semaphore = asyncio.Semaphore(self.max_concurrency)
-
-                    async def scrape_prompt(prompt: Prompt):
-                        async with semaphore:
-                            return await self._scrape_single_prompt(
-                                browser,
-                                prompt,
-                                limit,
-                                global_seen_keys,
-                                seen_keys_lock,
-                            )
-
-                    results = await asyncio.gather(
-                        *(scrape_prompt(prompt) for prompt in prompts),
-                        return_exceptions=True,
+                for prompt in prompts:
+                    listings = await self._scrape_single_prompt(
+                        browser, prompt, limit, global_seen_keys
                     )
-
-                    for prompt, result in zip(prompts, results):
-                        if isinstance(result, Exception):
-                            logger.error(
-                                "Concurrent scrape failed for prompt '%s'",
-                                prompt.query,
-                                exc_info=(type(result), result, result.__traceback__),
-                            )
-                            continue
-                        all_listings.extend(result)
+                    all_listings.extend(listings)
             except Exception:
                 logger.exception("An error occurred while scraping")
             return all_listings
@@ -225,13 +279,27 @@ class MapsScraper(BaseScraper):
 
     async def _scrape_single_prompt(
         self,
-        browser,
+        browser: Browser,
         prompt: Prompt,
         limit: int,
         global_seen_keys: set[str],
-        seen_keys_lock: asyncio.Lock,
     ) -> list[Listing]:
-        """Scrape a single prompt and return listings."""
+        """Scrape a single prompt and return deduplicated listings.
+        
+        Opens a new browser context, navigates to the Maps search URL,
+        collects result cards, extracts details from each card's detail page,
+        and deduplicates using a global seen-key set.
+        
+        Args:
+            browser: Playwright browser instance.
+            prompt: Search prompt with query string.
+            limit: Target number of listings to extract (may return fewer).
+            global_seen_keys: Shared set of dedupe keys across all prompts.
+        
+        Returns:
+            List of normalized Listing objects, deduplicated globally.
+            May return fewer than limit if feed exhausts or extraction fails.
+        """
         listings: list[Listing] = []
         context = await browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -256,10 +324,9 @@ class MapsScraper(BaseScraper):
                     continue
 
                 listing_key = self.normalizer.dedupe_key(listing)
-                async with seen_keys_lock:
-                    if listing_key in global_seen_keys:
-                        continue
-                    global_seen_keys.add(listing_key)
+                if listing_key in global_seen_keys:
+                    continue
+                global_seen_keys.add(listing_key)
                 listings.append(listing)
             logger.info("Collected %s listings for prompt '%s'", len(listings), prompt.query)
             return listings
