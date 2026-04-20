@@ -35,9 +35,11 @@ class BaseScraper(ABC):
 
     def __init__(
         self,
-        headless: bool = True,
+        headless: bool | None = None,
         max_concurrency: int | None = None,
     ) -> None:
+        if headless is None:
+            headless = self._env_bool("SCRAPER_HEADLESS", True)
         self.headless = headless
         if max_concurrency is None:
             max_concurrency = self._env_int("SCRAPER_MAX_CONCURRENCY", default=1)
@@ -78,7 +80,7 @@ class BaseScraper(ABC):
         prompts: Iterable[Prompt],
         limit: int = 10,
         checkpoint: "Checkpoint | None" = None,
-        show_progress: bool = True,
+        show_progress: bool | None = None,
     ) -> list[Listing]:
         """Run scraping synchronously for use outside async contexts.
 
@@ -92,12 +94,16 @@ class BaseScraper(ABC):
         listings are persisted but completed prompts are not skipped; this
         keeps fixed driver smoke checks deterministic across repeated runs.
 
-        When *show_progress* is True, progress is displayed in the terminal
-        (Rich-formatted if available, plain text otherwise).
+        When *show_progress* is omitted, `SCRAPER_SHOW_PROGRESS` controls the
+        default (enabled by default). When enabled, progress is displayed in
+        the terminal (Rich-formatted if available, plain text otherwise).
         """
         prompts_list = list(prompts)
         if not prompts_list:
             return []
+
+        if show_progress is None:
+            show_progress = self._env_bool("SCRAPER_SHOW_PROGRESS", True)
 
         implicit_checkpoint = False
         if checkpoint is None and self._env_bool("SCRAPER_CHECKPOINT_ENABLED", True):

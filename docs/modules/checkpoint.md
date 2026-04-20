@@ -97,9 +97,17 @@ This compatibility helper saves listings and marks success.
 
 ## Operational notes
 
-Checkpoint mode is enabled by passing a Checkpoint instance to BaseScraper.run.
-In this mode, listing data is persisted incrementally and resume skips completed
-prompts only.
+BaseScraper.run uses checkpoint persistence in two modes:
+
+- Implicit mode (default when no explicit checkpoint is passed and
+	`SCRAPER_CHECKPOINT_ENABLED=1`): listings are persisted incrementally, but
+	completed prompts are not skipped.
+- Explicit mode (caller passes Checkpoint): listings are persisted
+	incrementally and completed prompts are skipped.
+
+Path controls:
+
+- `SCRAPER_CHECKPOINT_PATH` sets the implicit output path.
 
 ## Next steps
 

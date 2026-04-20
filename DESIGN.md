@@ -41,9 +41,12 @@ Development followed a module-boundary-first approach: data model (`models.py`),
 
 **Tradeoffs**
 
-- *Headless vs. headed* — Headless is the default for unattended runs. Setting `headless=False` helps debug selector failures interactively.
+- *Headless vs. headed* — Headless is the default for unattended runs. You can
+        set `SCRAPER_HEADLESS=0` to run headed mode for interactive selector
+        debugging.
 - *Speed vs. reliability* — The two-stage approach roughly doubles wall time compared to direct card clicking, but reduces failed extractions on dynamic pages significantly.
 - *Concurrency* — Default concurrency is 1 (single browser, sequential prompts). Higher concurrency (`SCRAPER_MAX_CONCURRENCY`) opens one Playwright context per worker; the checkpoint and deduplication sets are protected by `asyncio.Lock`.
+- *Checkpoint defaults* — `BaseScraper.run()` enables checkpoint persistence by default when `SCRAPER_CHECKPOINT_ENABLED=1`, even if no explicit `Checkpoint` object is passed.
 - *Rating format* — Stored as the raw locator text (e.g. `"4.3 stars"`). Parsing to float was considered but deferred; the raw form is unambiguous and easy to post-process.
 
 **Dead ends**
@@ -76,7 +79,20 @@ All waits use `wait_for_selector` or `wait_for`, so they do not burn wall time w
 - `output.jsonl` — one record per listing, flushed after each prompt completes.
 - `output.jsonl.status.jsonl` — prompt lifecycle journal (`started` / `succeeded` / `failed`).
 
-On restart, `filter_prompts` skips only prompts with a terminal `succeeded` status. Failed prompts are retried automatically.
+In explicit checkpoint mode (caller passes `Checkpoint`), `filter_prompts`
+skips prompts with terminal `succeeded` status.
+
+In implicit default mode (no explicit checkpoint passed), listings are still
+persisted, but prompts are not pre-filtered. This keeps fixed-driver smoke
+checks deterministic across repeated runs.
+
+Failed prompts are retried automatically in subsequent explicit resume runs.
+
+Environment controls:
+
+- `SCRAPER_SHOW_PROGRESS` (default `1`)
+- `SCRAPER_CHECKPOINT_ENABLED` (default `1`)
+- `SCRAPER_CHECKPOINT_PATH` (default `output.jsonl`)
 
 **Deduplication**
 
@@ -167,7 +183,9 @@ Key considerations:
 - **Checkpointing** — Replace file-based checkpoints with a database table keyed by `(run_id, prompt_query)` so any worker can resume a failed prompt.
 - **Region targeting** — Pass a `gl` (country) and `hl` (language) parameter in the Maps URL to force results for a specific locale without relying on IP geolocation. Combine with a proxy pool that exits in the target country.
 - **Rate control** — Implement a token-bucket rate limiter in the coordinator to cap requests per IP/minute; measure 429 rates per worker and auto-scale down if blocking increases.
-- **Observability** — Emit structured metrics (listings_per_prompt, extraction_time, missing_field_rate) to a time-series store (Prometheus/CloudWatch) and alert on regression.
+- **Observability** — Emit structured metrics (listings_per_prompt,
+  extraction_time, missing_field_rate) to a time-series store
+  (Prometheus/CloudWatch) and alert on regression.
 
 ## 8. What I Would Improve With More Time
 

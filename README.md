@@ -45,6 +45,12 @@ python task_driver.py
 
 The driver runs built-in checks and writes output to `output.jsonl`.
 
+By default, `BaseScraper.run()` enables checkpoint persistence and progress
+reporting even when you do not pass a `Checkpoint` instance.
+
+Browser mode defaults to headless and can be overridden with
+`SCRAPER_HEADLESS=0` for debugging.
+
 ## Concurrency
 
 Prompt processing supports bounded concurrency. By default, runs are
@@ -54,6 +60,31 @@ Set `SCRAPER_MAX_CONCURRENCY` to increase parallel prompt workers:
 
 ```bash
 SCRAPER_MAX_CONCURRENCY=3 python task_driver.py
+```
+
+## Environment variables
+
+This project reads runtime settings from environment variables. Start from
+`.env.example` and adjust values for your local runs.
+
+The `task` package loads `.env` from the repository root using
+`python-dotenv` at import time, so `SCRAPER_*` values are available without
+manual export.
+
+- `SCRAPER_MAX_CONCURRENCY`: prompt worker count. Default: `1`.
+- `SCRAPER_HEADLESS`: browser mode for scraper runs. Default: `1`.
+- `SCRAPER_SHOW_PROGRESS`: progress display toggle when `show_progress` is not
+  passed to `run()`. Default: `1`.
+- `SCRAPER_CHECKPOINT_ENABLED`: implicit checkpoint persistence toggle for
+	`run()` when no explicit `Checkpoint` is passed. Default: `1`.
+- `SCRAPER_CHECKPOINT_PATH`: implicit checkpoint output path. Default:
+	`output.jsonl`.
+
+Example:
+
+```bash
+cp .env.example .env
+python task_driver.py
 ```
 
 Notes:
@@ -68,6 +99,16 @@ Notes:
 
 You can wire resumable execution by passing a `Checkpoint` instance to
 `scraper.run(...)`.
+
+Default behavior without an explicit checkpoint:
+
+- listings are still checkpoint-persisted incrementally.
+- completed prompts are not skipped on rerun.
+
+Explicit behavior with a `Checkpoint` instance:
+
+- completed prompts are skipped on rerun.
+- failed prompts stay retryable.
 
 ```python
 from task.main import Checkpoint, MapsScraper

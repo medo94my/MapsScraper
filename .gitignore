@@ -19,3 +19,5 @@ RETRIES_AND_BOTTLENECKS_REPORT.md
 IMPLEMENTATION.md
 output/
 graphify-out/
+.env
+.DS_Store

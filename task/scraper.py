@@ -25,6 +25,8 @@ TIMEOUT_SECONDARY_MS = 3000  # Wait for secondary detail fields (address, phone)
 # Scroll configuration
 MAX_SCROLL_ROUNDS = 40  # Max iterations scrolling feed
 STAGNATION_THRESHOLD = 5  # Rounds without new results before stopping scroll
+EXTRA_CANDIDATE_MULTIPLIER = 3  # Collect more hrefs to absorb extraction failures
+MAX_CANDIDATE_ATTEMPTS = 120  # Hard cap for detail-page attempts per prompt
 
 
 class MapsScraper(BaseScraper):
@@ -38,15 +40,19 @@ class MapsScraper(BaseScraper):
         - Graceful partial failure recovery
     """
 
+    _RATING_RE = re.compile(r"\b([0-5](?:[.,]\d)?)\b")
+    _PHONE_RE = re.compile(r"(\+?\d[\d\s().-]{6,}\d)")
+
     def __init__(
         self,
-        headless: bool = True,
+        headless: bool | None = None,
         max_concurrency: int | None = None,
     ) -> None:
         """Initialize MapsScraper.
         
         Args:
-            headless: If True, run browser in headless mode (default: False for debugging).
+            headless: Browser headless mode. If omitted, reads SCRAPER_HEADLESS
+                (default: True).
             max_concurrency: Max concurrent prompts (default: 1). Higher values use
                 multiple browser contexts with shared deduplication.
         """
@@ -122,13 +128,14 @@ class MapsScraper(BaseScraper):
         """
         await page.wait_for_selector('a[href*="/maps/place/"]', timeout=TIMEOUT_PLACE_LINK_MS)
         links = page.locator('a[href*="/maps/place/"]')
+        target_links = min(MAX_CANDIDATE_ATTEMPTS, max(limit, limit * EXTRA_CANDIDATE_MULTIPLIER))
 
         previous_count = 0
         stagnant_rounds = 0
 
         for _ in range(MAX_SCROLL_ROUNDS):
             current_count = await links.count()
-            if current_count >= limit or current_count == 0:
+            if current_count >= target_links or current_count == 0:
                 break
 
             if current_count == previous_count:
@@ -177,6 +184,47 @@ class MapsScraper(BaseScraper):
             candidates.append((href, fallback_name))
 
         return candidates
+
+    async def _extract_rating_text(self, details_panel) -> str:
+        """Extract rating with multilingual selector fallbacks."""
+        rating = await self._safe_text(details_panel.locator('[aria-label*="stars"]').first)
+        if rating:
+            return rating
+
+        alt_rating = details_panel.locator(
+            '[aria-label*="star"], [aria-label*="stars"], '
+            '[aria-label*="rating"], [aria-label*="نجمة"], [aria-label*="تقييم"]'
+        ).first
+        aria_label = await self._safe_attr(alt_rating, "aria-label", timeout=TIMEOUT_SECONDARY_MS)
+        candidate_text = aria_label or await self._safe_text(alt_rating)
+        if not candidate_text:
+            return ""
+
+        match = self._RATING_RE.search(candidate_text)
+        return match.group(1).replace(",", ".") if match else ""
+
+    async def _extract_phone_text(self, details_panel) -> str:
+        """Extract phone with attribute and text fallbacks."""
+        phone = await self._safe_text(
+            details_panel.locator(
+                'button[data-item-id="phone"], button[data-item-id*="phone"], '
+                'button[aria-label*="Phone"], button[aria-label*="الهاتف"]'
+            ).first
+        )
+        if phone:
+            return phone
+
+        tel_href = await self._safe_attr(
+            details_panel.locator('a[href^="tel:"]').first,
+            "href",
+            timeout=TIMEOUT_SECONDARY_MS,
+        )
+        if tel_href.startswith("tel:"):
+            return tel_href.removeprefix("tel:")
+
+        panel_text = await self._safe_text(details_panel)
+        match = self._PHONE_RE.search(panel_text)
+        return match.group(1) if match else ""
 
     @retry_with_backoff(
         config=RetryConfig(max_attempts=3, base_delay=0.5, max_delay=5.0)
@@ -230,8 +278,8 @@ class MapsScraper(BaseScraper):
             "href",
             timeout=TIMEOUT_SECONDARY_MS,
         )
-        phone_text = await self._safe_text(details_panel.locator('button[data-item-id="phone"]').first)
-        rating = await self._safe_text(details_panel.locator('[aria-label*="stars"]').first)
+        phone_text = await self._extract_phone_text(details_panel)
+        rating = await self._extract_rating_text(details_panel)
 
         return self.normalizer.normalize_listing(Listing(
             name=name,
@@ -311,9 +359,15 @@ class MapsScraper(BaseScraper):
             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
             _, has_feed = await self._prepare_results_feed(page)
             links = await self._load_place_links(page, has_feed, limit)
-            candidates = await self._collect_place_candidates(links, limit)
+            candidate_limit = min(
+                MAX_CANDIDATE_ATTEMPTS,
+                max(limit, limit * EXTRA_CANDIDATE_MULTIPLIER),
+            )
+            candidates = await self._collect_place_candidates(links, candidate_limit)
 
             for href, fallback_name in candidates:
+                if len(listings) >= limit:
+                    break
                 listing = await self._extract_listing_from_href(
                     detail_page,
                     href,

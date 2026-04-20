@@ -34,7 +34,7 @@ Reliability is provided by:
 - safe field extraction helpers
 - retry for timeout-prone detail extraction
 - prompt-level checkpoint status journaling
-- resumable processing that skips completed prompts
+- resumable processing in explicit checkpoint mode
 - progress reporting with Rich fallback
 
 ## Runtime flow
@@ -45,8 +45,11 @@ Use this sequence when reasoning about behavior and debugging regressions.
 2. BaseScraper.run selects normal mode or checkpoint mode.
 3. MapsScraper.scrape processes prompts and extracts listing candidates.
 4. Listing normalization and dedupe key generation are applied.
-5. Output is written either incrementally by checkpoint mode or as one final
-   write.
+5. Output is written either incrementally by implicit or explicit checkpoint
+   mode, or as one final write when checkpointing is disabled.
+
+By default, BaseScraper.run enables checkpoint persistence through environment
+configuration even when callers do not pass a Checkpoint instance.
 
 ## Module ownership map
 
@@ -123,10 +126,16 @@ Run this checklist before merging scraper changes.
 
 Use these commands during maintenance.
 
+Use `.env.example` as the source of supported runtime environment variables.
+
 ```bash
 python -m pytest tests/ -v
 python task_driver.py
+SCRAPER_HEADLESS=0 python task_driver.py
+SCRAPER_SHOW_PROGRESS=0 python task_driver.py
 SCRAPER_MAX_CONCURRENCY=3 python task_driver.py
+SCRAPER_CHECKPOINT_ENABLED=0 python task_driver.py
+SCRAPER_CHECKPOINT_PATH=output/output.jsonl python task_driver.py
 ```
 
 ## Known tradeoffs
