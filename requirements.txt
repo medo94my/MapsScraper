@@ -2,6 +2,7 @@
 
 # Required dependencies
 playwright>=1.40.0
+python-dotenv>=1.0.0
 
 # Optional dependencies for enhanced terminal output
 # Install with: pip install rich

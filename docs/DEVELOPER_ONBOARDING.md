@@ -23,17 +23,22 @@ Follow these steps to set up and verify the project behavior on your machine.
 1. Create and activate a virtual environment.
 2. Install Python dependencies.
 3. Install Playwright Chromium.
-4. Run the driver.
+4. Copy `.env.example` if you want local runtime overrides.
+5. Run the driver.
 
 ```bash
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
+cp .env.example .env
 python task_driver.py
 ```
 
 If the command exits with code 0, the baseline flow is healthy.
+
+The project loads `.env` automatically with `python-dotenv`, so `SCRAPER_*`
+settings apply without separate shell export steps.
 
 ## Daily development workflow
 
@@ -56,7 +61,8 @@ The runtime path is stable and is the main concept you need to preserve during
 maintenance.
 
 1. Prompt loading: BaseScraper.read_prompt_file reads newline-delimited queries.
-2. Orchestration: BaseScraper.run decides normal mode or checkpoint mode.
+2. Orchestration: BaseScraper.run decides implicit checkpoint mode or explicit
+   resumable checkpoint mode.
 3. Scraping: MapsScraper.scrape processes prompts and collects listings.
 4. Extraction: _scrape_single_prompt and _extract_listing_from_href parse Maps
    pages.
@@ -91,7 +97,10 @@ If query traceability breaks, checkpoint status and debugging quality degrade.
 
 The codebase includes reliability patterns that protect long scraping runs.
 
-- Prompt-level checkpointing: completed prompts are skipped on rerun.
+- Implicit checkpointing (default): prompt listings are persisted, but reruns do
+   not skip completed prompts.
+- Explicit checkpointing (Checkpoint passed): completed prompts are skipped on
+   rerun.
 - Failed prompts stay retryable: failures are recorded but not terminal.
 - Incremental persistence: listings are flushed per prompt in checkpoint mode.
 - Timeout retry: detail extraction retries on transient timeout failures.
@@ -150,6 +159,16 @@ This task balances anti-bot risk and throughput.
 2. Increase gradually to 2 to 4 in local testing.
 3. Watch failure rate, retries, and extracted listings.
 4. Keep settings conservative for production-like runs.
+
+Environment variables for this flow:
+
+- SCRAPER_MAX_CONCURRENCY: prompt worker count (default 1).
+- SCRAPER_HEADLESS: browser mode toggle; set to 0 for headed debugging.
+- SCRAPER_SHOW_PROGRESS: progress display toggle when run() does not receive
+   show_progress.
+- SCRAPER_CHECKPOINT_ENABLED: implicit checkpoint toggle (default 1).
+- SCRAPER_CHECKPOINT_PATH: implicit checkpoint output path (default
+   output.jsonl).
 
 ## Troubleshooting quick map
 

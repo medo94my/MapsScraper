@@ -20,6 +20,7 @@ This constructor initializes runtime settings.
 
 Behavior:
 - stores headless mode.
+- when headless is omitted, resolves from SCRAPER_HEADLESS.
 - resolves max_concurrency from SCRAPER_MAX_CONCURRENCY when omitted.
 - enforces a minimum value of 1.
 
@@ -30,6 +31,14 @@ This helper parses an integer environment variable safely.
 Behavior:
 - returns default when variable is unset.
 - returns default and logs warning when value is invalid.
+
+### _env_bool(name: str, default: bool) -> bool
+
+This helper parses a boolean environment variable safely.
+
+Behavior:
+- returns default when variable is unset.
+- treats `0`, `false`, `no`, and `off` as false.
 
 ### scrape(prompts: list[Prompt], limit: int) -> list[Listing]
 
@@ -44,9 +53,25 @@ This function is the synchronous entry point used by scripts and drivers.
 
 Behavior:
 - returns empty list for empty input.
-- without checkpoint, runs scrape in a dedicated event loop.
-- with checkpoint, routes to checkpoint-enabled orchestration.
+- without checkpoint, enables implicit checkpoint mode by default when
+   `SCRAPER_CHECKPOINT_ENABLED=1`.
+- in implicit checkpoint mode, listings are persisted and completed prompts are
+  skipped by default.
+- with explicit checkpoint, routes to resumable checkpoint-enabled
+   orchestration.
 - logs and returns empty list on top-level failure.
+
+Environment controls:
+- `SCRAPER_HEADLESS` (default `1`)
+- `SCRAPER_SHOW_PROGRESS` (default `1`)
+- `SCRAPER_CHECKPOINT_ENABLED` (default `1`)
+- `SCRAPER_CHECKPOINT_RESUME` (default `1`)
+- `SCRAPER_CHECKPOINT_RESET` (default `0`)
+- `SCRAPER_CHECKPOINT_PATH` (default `output.jsonl`)
+- `SCRAPER_MAX_CONCURRENCY` (default `1`)
+
+These values are loaded from `.env` by `python-dotenv` in `task/__init__.py`
+when the package is imported.
 
 ### _run_with_checkpoint(...)
 
@@ -60,7 +85,8 @@ Behavior:
 This function runs prompts concurrently with checkpoint and progress semantics.
 
 Behavior:
-- filters already completed prompts first.
+- filters already completed prompts when `resume_completed=True`.
+- processes all prompts when `resume_completed=False`.
 - uses semaphore to enforce max_concurrency.
 - for each prompt, marks started, scrapes, saves listings, and marks success.
 - marks failed on exception and continues remaining work.
