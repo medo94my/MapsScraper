@@ -14,7 +14,7 @@ The scraper:
 - searches each prompt on Google Maps
 - lazily loads result cards
 - extracts listing details from dedicated place pages
-- deduplicates listings with `name + lat + lon`
+- deduplicates listings with `name + lat + lon + website_host`
 - writes output in JSONL format
 
 ## Requirements
@@ -36,14 +36,7 @@ pip install -r requirements.txt
 playwright install
 ```
 
-**Optional:** For rich terminal formatting during scraper runs, uncomment the `rich` line in `requirements.txt` and reinstall:
-
-```bash
-pip install rich
-```
-
 ## Run
-
 Run the provided driver:
 
 ```bash
@@ -108,10 +101,15 @@ Two dataclasses represent the core schema:
 
 Code is split by responsibility:
 
-- `task/models.py`: `Prompt` and `Listing`
+- `task/models.py`: `Prompt` and `Listing` dataclasses
 - `task/error.py`: custom exception hierarchy
 - `task/logger.py`: centralized logger factory
-- `task/scraper.py`: `MapsScraper` implementation
+- `task/base.py`: `BaseScraper` abstract base (sync entry-point, I/O helpers)
+- `task/scraper.py`: `MapsScraper` — Google Maps extraction logic
+- `task/checkpoint.py`: `Checkpoint` — append-only JSONL status journal
+- `task/progress.py`: `ProgressReporter` — Rich/plain terminal progress display
+- `task/retries.py`: `RetryConfig` and `retry_with_backoff` decorator
+- `task/normalizers/listing.py`: `ListingNormalizer` — field cleaning and dedup key
 - `task/main.py`: backward-compatible re-exports
 - `task/__init__.py`: package exports
 
@@ -155,3 +153,6 @@ To reduce stale UI-state issues, the scraper follows a two-stage approach:
 
 This approach is slower than direct card clicking but more consistent for
 dynamic UI updates.
+
+Failed detail-page extractions are retried up to three times with exponential
+back-off and jitter before the listing is skipped and the prompt continues.
