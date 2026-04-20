@@ -54,6 +54,13 @@ class BaseScraper(ABC):
             logger.warning("Invalid %s value '%s'; falling back to %s", name, value, default)
             return default
 
+    @staticmethod
+    def _env_bool(name: str, default: bool) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+
     # ------------------------------------------------------------------
     # Abstract interface
     # ------------------------------------------------------------------
@@ -75,10 +82,15 @@ class BaseScraper(ABC):
     ) -> list[Listing]:
         """Run scraping synchronously for use outside async contexts.
 
-        When *checkpoint* is provided the run is resumable: already-completed
-        prompts are skipped and each prompt's results are flushed to disk
-        immediately after it finishes, so a crash loses at most one prompt's
-        worth of work.
+        When *checkpoint* is provided explicitly the run is resumable:
+        already-completed prompts are skipped and each prompt's results are
+        flushed to disk immediately after it finishes, so a crash loses at
+        most one prompt's worth of work.
+
+        When *checkpoint* is omitted, checkpointing is enabled by default
+        unless ``SCRAPER_CHECKPOINT_ENABLED=0``. In this implicit mode,
+        listings are persisted but completed prompts are not skipped; this
+        keeps fixed driver smoke checks deterministic across repeated runs.
 
         When *show_progress* is True, progress is displayed in the terminal
         (Rich-formatted if available, plain text otherwise).
@@ -87,9 +99,21 @@ class BaseScraper(ABC):
         if not prompts_list:
             return []
 
+        implicit_checkpoint = False
+        if checkpoint is None and self._env_bool("SCRAPER_CHECKPOINT_ENABLED", True):
+            from task.checkpoint import Checkpoint
+
+            checkpoint_path = os.getenv("SCRAPER_CHECKPOINT_PATH", "output.jsonl")
+            checkpoint = Checkpoint(checkpoint_path)
+            implicit_checkpoint = True
+
         if checkpoint is not None:
             return self._run_with_checkpoint(
-                prompts_list, limit, checkpoint, show_progress
+                prompts_list,
+                limit,
+                checkpoint,
+                show_progress,
+                resume_completed=not implicit_checkpoint,
             )
 
         try:
@@ -106,6 +130,7 @@ class BaseScraper(ABC):
         limit: int,
         checkpoint: "Checkpoint",
         show_progress: bool = True,
+        resume_completed: bool = True,
     ) -> list[Listing]:
         """Process prompts with checkpoint lifecycle events and bounded concurrency."""
         loop = None
@@ -118,6 +143,7 @@ class BaseScraper(ABC):
                     limit=limit,
                     checkpoint=checkpoint,
                     show_progress=show_progress,
+                    resume_completed=resume_completed,
                 )
             )
         finally:
@@ -133,12 +159,20 @@ class BaseScraper(ABC):
         limit: int,
         checkpoint: "Checkpoint",
         show_progress: bool = True,
+        resume_completed: bool = True,
     ) -> list[Listing]:
         """Async checkpoint worker that runs prompts with bounded concurrency."""
-        remaining = checkpoint.filter_prompts(prompts)
-        if not remaining:
-            logger.info("All prompts already checkpointed — nothing to do")
-            return []
+        if resume_completed:
+            remaining = checkpoint.filter_prompts(prompts)
+            if not remaining:
+                logger.info("All prompts already checkpointed — nothing to do")
+                return []
+        else:
+            remaining = prompts
+            logger.info(
+                "Checkpoint persistence enabled without resume filtering; processing %d prompt(s)",
+                len(remaining),
+            )
 
         all_listings: list[Listing] = []
         reporter = ProgressReporter(use_rich=True) if show_progress else None
