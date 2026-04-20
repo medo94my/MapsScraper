@@ -54,6 +54,10 @@ Development followed a module-boundary-first approach: data model (`models.py`),
 
 ## 4. Reliability: Retries, Timeouts, Checkpointing, Deduplication, Logging, Partial Failure Recovery
 
+**Retries**
+
+`_extract_listing_from_href` is decorated with `@retry_with_backoff(RetryConfig(max_attempts=3, base_delay=0.5, max_delay=5.0))`. On `PlaywrightTimeoutError` or `PlaywrightError` the method sleeps with exponential back-off and jitter before retrying. After three failures the listing is skipped and the prompt continues.
+
 **Timeouts**
 
 Each stage uses conservative but bounded waits:
@@ -167,23 +171,21 @@ Key considerations:
 
 ## 8. What I Would Improve With More Time
 
-1. **Retry with back-off** — Individual failed place-detail navigations currently skip the listing. A short retry loop (2–3 attempts with exponential back-off) would recover transient failures.
+1. **Coordinate validation** — Listings with `lat == 0.0 and lon == 0.0` should be quarantined to a `suspect_output.jsonl` rather than mixed into the main output.
 
-2. **Coordinate validation** — Listings with `lat == 0.0 and lon == 0.0` should be quarantined to a `suspect_output.jsonl` rather than mixed into the main output.
+2. **Rating normalization** — Parse rating strings to `float` (e.g. `"4.3 stars"` → `4.3`) and expose `review_count` as a separate integer field.
 
-3. **Rating normalization** — Parse rating strings to `float` (e.g. `"4.3 stars"` → `4.3`) and expose `review_count` as a separate integer field.
+3. **Opening hours extraction** — The detail panel exposes opening hours; extracting structured `{day: [open, close]}` maps would materially improve downstream usefulness.
 
-4. **Opening hours extraction** — The detail panel exposes opening hours; extracting structured `{day: [open, close]}` maps would materially improve downstream usefulness.
+4. **Category / business type** — The detail panel includes a category label (e.g. "Pharmacy", "Bookstore") that can anchor the result to the search intent and help downstream filtering.
 
-5. **Category / business type** — The detail panel includes a category label (e.g. "Pharmacy", "Bookstore") that can anchor the result to the search intent and help downstream filtering.
+5. **Selector health monitor** — A lightweight post-run check that flags when the fraction of populated fields drops below a rolling baseline per field, surfacing selector drift quickly.
 
-6. **Selector health monitor** — A lightweight post-run check that flags when the fraction of populated fields drops below a rolling baseline per field, surfacing selector drift quickly.
+6. **Proxy integration** — Parameterize the Playwright launch with a proxy URL so the scraper can be pointed at a residential proxy pool for higher-volume or adversarial use cases.
 
-7. **Proxy integration** — Parameterize the Playwright launch with a proxy URL so the scraper can be pointed at a residential proxy pool for higher-volume or adversarial use cases.
+7. **Docker Compose with a pre-cached browser** — The current Dockerfile installs Playwright and downloads the Chromium binary at build time, which is correct; a Compose file would make multi-service setup (e.g., scraper + Redis for distributed deduplication) one command.
 
-8. **Docker Compose with a pre-cached browser** — The current Dockerfile installs Playwright and downloads the Chromium binary at build time, which is correct; a Compose file would make multi-service setup (e.g., scraper + Redis for distributed deduplication) one command.
-
-9. **Selector regression tests** — Fixture-based tests currently cover normalization. Adding a small set of recorded HTML snippets and asserting correct field extraction from them would catch CSS selector changes before they hit production.
+8. **Selector regression tests** — Fixture-based tests currently cover normalization. Adding a small set of recorded HTML snippets and asserting correct field extraction from them would catch CSS selector changes before they hit production.
 
 ---
 
