@@ -77,6 +77,10 @@ manual export.
   passed to `run()`. Default: `1`.
 - `SCRAPER_CHECKPOINT_ENABLED`: implicit checkpoint persistence toggle for
 	`run()` when no explicit `Checkpoint` is passed. Default: `1`.
+- `SCRAPER_CHECKPOINT_RESUME`: skip prompts already marked `succeeded` in
+  checkpoint status journal. Default: `1`.
+- `SCRAPER_CHECKPOINT_RESET`: remove checkpoint output and status files before
+  run. Default: `0`.
 - `SCRAPER_CHECKPOINT_PATH`: implicit checkpoint output path. Default:
 	`output.jsonl`.
 
@@ -103,7 +107,10 @@ You can wire resumable execution by passing a `Checkpoint` instance to
 Default behavior without an explicit checkpoint:
 
 - listings are still checkpoint-persisted incrementally.
-- completed prompts are not skipped on rerun.
+- completed prompts are skipped on rerun.
+
+To force a fresh run against the same checkpoint path, set
+`SCRAPER_CHECKPOINT_RESET=1`.
 
 Explicit behavior with a `Checkpoint` instance:
 

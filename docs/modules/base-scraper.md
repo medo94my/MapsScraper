@@ -55,8 +55,8 @@ Behavior:
 - returns empty list for empty input.
 - without checkpoint, enables implicit checkpoint mode by default when
    `SCRAPER_CHECKPOINT_ENABLED=1`.
-- in implicit checkpoint mode, listings are persisted but completed prompts are
-   not skipped.
+- in implicit checkpoint mode, listings are persisted and completed prompts are
+  skipped by default.
 - with explicit checkpoint, routes to resumable checkpoint-enabled
    orchestration.
 - logs and returns empty list on top-level failure.
@@ -65,6 +65,8 @@ Environment controls:
 - `SCRAPER_HEADLESS` (default `1`)
 - `SCRAPER_SHOW_PROGRESS` (default `1`)
 - `SCRAPER_CHECKPOINT_ENABLED` (default `1`)
+- `SCRAPER_CHECKPOINT_RESUME` (default `1`)
+- `SCRAPER_CHECKPOINT_RESET` (default `0`)
 - `SCRAPER_CHECKPOINT_PATH` (default `output.jsonl`)
 - `SCRAPER_MAX_CONCURRENCY` (default `1`)
 

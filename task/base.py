@@ -110,8 +110,20 @@ class BaseScraper(ABC):
             from task.checkpoint import Checkpoint
 
             checkpoint_path = os.getenv("SCRAPER_CHECKPOINT_PATH", "output.jsonl")
+            if self._env_bool("SCRAPER_CHECKPOINT_RESET", False):
+                checkpoint_file = pathlib.Path(checkpoint_path)
+                status_file = checkpoint_file.with_name(f"{checkpoint_file.name}.status.jsonl")
+                for path in (checkpoint_file, status_file):
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError:
+                        logger.warning("Failed to reset checkpoint file: %s", path)
             checkpoint = Checkpoint(checkpoint_path)
             implicit_checkpoint = True
+
+        resume_completed = self._env_bool("SCRAPER_CHECKPOINT_RESUME", True)
+        if checkpoint is not None and not implicit_checkpoint:
+            resume_completed = True
 
         if checkpoint is not None:
             return self._run_with_checkpoint(
@@ -119,7 +131,7 @@ class BaseScraper(ABC):
                 limit,
                 checkpoint,
                 show_progress,
-                resume_completed=not implicit_checkpoint,
+                resume_completed=resume_completed,
             )
 
         try:
