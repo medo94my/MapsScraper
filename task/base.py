@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import pathlib
+import sys
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -25,6 +26,10 @@ if TYPE_CHECKING:
 
 
 logger = get_logger("task.base")
+
+# Playwright requires ProactorEventLoop on Windows; apply before any loop is created.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 class BaseScraper(ABC):
@@ -265,7 +270,7 @@ class BaseScraper(ABC):
         if not prompt_path.exists():
             raise MissingPromptFile(file_path)
 
-        raw = prompt_path.read_text().splitlines()
+        raw = prompt_path.read_text(encoding="utf-8").splitlines()
         prompts = [Prompt(query=line) for line in raw if line.strip()]
         if not prompts:
             raise WrongPromptFile(file_path)
@@ -277,7 +282,7 @@ class BaseScraper(ABC):
 
     def write_jsonl(self, listings: Iterable[Listing], output_path: str) -> None:
         """Write *listings* to a JSON Lines file at *output_path*."""
-        with open(output_path, "w", encoding="utf-8") as fh:
+        with open(output_path, "w", encoding="utf-8", newline="\n") as fh:
             for listing in listings:
                 fh.write(json.dumps(listing.__dict__, ensure_ascii=False) + "\n")
 

@@ -116,7 +116,7 @@ class Checkpoint:
             "reason": reason,
             "ts": datetime.now(timezone.utc).isoformat(),
         }
-        with self._status_path.open("a", encoding="utf-8") as fh:
+        with self._status_path.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(event, ensure_ascii=False) + "\n")
             fh.flush()
 
@@ -165,7 +165,7 @@ class Checkpoint:
         The file is opened in append mode and flushed after every write, so
         partial progress survives a crash between calls.
         """
-        with self._path.open("a", encoding="utf-8") as fh:
+        with self._path.open("a", encoding="utf-8", newline="\n") as fh:
             for listing in listings:
                 record = {**listing.__dict__, "query": prompt.query}
                 fh.write(json.dumps(record, ensure_ascii=False) + "\n")
