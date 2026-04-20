@@ -1,0 +1,8 @@
+# Google Maps Business Listing Scraper Dependencies
+
+# Required dependencies
+playwright>=1.40.0
+
+# Optional dependencies for enhanced terminal output
+# Install with: pip install rich
+rich>=13.0.0

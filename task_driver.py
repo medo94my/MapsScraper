@@ -84,8 +84,10 @@ def main():
     tests()
     scraper = MapsScraper()
     prompts = scraper.read_prompt_file(str(ROOT_DIR / "prompts.txt"))
-    listings = scraper.run(prompts, limit=30)
-    scraper.write_jsonl(listings, str(ROOT_DIR / "output.jsonl"))
+    
+    # Enable resumable runs with progress reporting
+    checkpoint = Checkpoint(str(ROOT_DIR / "output.jsonl"))
+    listings = scraper.run(prompts, limit=30, checkpoint=checkpoint, show_progress=True)
 
 
 if __name__ == "__main__":

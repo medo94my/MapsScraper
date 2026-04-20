@@ -1,0 +1,41 @@
+[
+  {
+    "name": "arabic_latin_cleanup",
+    "input": {
+      "name": "Royal Razorصالون حلاقه",
+      "lat": 31.9546972,
+      "lon": 35.9118306,
+      "url": "https://www.google.com/maps/place/Royal+Razor",
+      "address": "\ue0c8Al Ameer, Muhammad Tash St., Amman, Jordan",
+      "website": "/url?q=https://Example.com/path?utm_source=google&ref=listing&sa=U&ved=1",
+      "rating": "4.7 stars",
+      "phone": "٠٧٩ ١٢٣ ٤٥٦٧",
+      "query": "حلاق في عمّان"
+    },
+    "expected": {
+      "name": "Royal Razor صالون حلاقه",
+      "address": "Al Ameer, Muhammad Tash St., Amman, Jordan",
+      "website": "https://example.com/path",
+      "phone": "0791234567",
+      "query": "حلاق في عمّان"
+    }
+  },
+  {
+    "name": "tracking_query_removed",
+    "input": {
+      "name": "Sample Barber",
+      "lat": 31.0,
+      "lon": 35.0,
+      "url": "https://www.google.com/maps/place/Sample",
+      "address": "Amman",
+      "website": "www.Example.com/?utm_medium=social&ref=abc",
+      "rating": "",
+      "phone": "+962 79 000 1111",
+      "query": "barber"
+    },
+    "expected": {
+      "website": "https://example.com/?ref=abc",
+      "phone": "+962790001111"
+    }
+  }
+]
