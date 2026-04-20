@@ -40,7 +40,7 @@ class MapsScraper(BaseScraper):
 
     def __init__(
         self,
-        headless: bool = False,
+        headless: bool = True,
         max_concurrency: int | None = None,
     ) -> None:
         """Initialize MapsScraper.

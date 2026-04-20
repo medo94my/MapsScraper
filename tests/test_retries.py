@@ -1,9 +1,7 @@
 """Tests for retry and timeout adaptation strategies."""
 
-import asyncio
 import time
 import pytest
-from unittest.mock import AsyncMock
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 

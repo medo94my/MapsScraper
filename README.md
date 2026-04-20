@@ -117,6 +117,14 @@ Code is split by responsibility:
 
 `task_driver.py` still imports from `task.main`, and compatibility is preserved.
 
+## Maintainer documentation
+
+This repository uses a non-overlapping documentation layout:
+
+- Architecture and maintenance workflows: `docs/MAINTAINER_GUIDE.md`
+- New contributor quick start: `docs/DEVELOPER_ONBOARDING.md`
+- Class and function API reference: `docs/modules/overview.md`
+
 ## Error handling
 
 Custom errors are defined in `task/error.py`:

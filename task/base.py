@@ -12,7 +12,8 @@ import os
 import pathlib
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Iterable, Optional
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 from task.error import MissingPromptFile, WrongPromptFile
 from task.logger import get_logger
@@ -69,10 +70,10 @@ class BaseScraper(ABC):
         self,
         prompts: Iterable[Prompt],
         limit: int = 10,
-        checkpoint: Optional["Checkpoint"] = None,
+        checkpoint: "Checkpoint | None" = None,
         show_progress: bool = True,
     ) -> list[Listing]:
-        """Synchronous wrapper around :meth:`scrape` for use outside async contexts.
+        """Run scraping synchronously for use outside async contexts.
 
         When *checkpoint* is provided the run is resumable: already-completed
         prompts are skipped and each prompt's results are flushed to disk
