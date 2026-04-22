@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
   pull_request:
-    branches: ["**"]
 
 jobs:
   lint-and-test:
@@ -16,11 +14,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install playwright pytest ruff
+          pip install -r requirements.txt
+          pip install pytest ruff
           playwright install chromium --with-deps
 
       - name: Lint (ruff)

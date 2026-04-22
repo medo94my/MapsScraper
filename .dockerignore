@@ -1,0 +1,15 @@
+.git
+.github
+.agents
+venv
+__pycache__
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.vscode
+.DS_Store
+.env
+output
+output.jsonl
+output.jsonl.status.jsonl
+graphify-out

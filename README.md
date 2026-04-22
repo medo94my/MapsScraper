@@ -45,6 +45,26 @@ python task_driver.py
 
 The driver runs built-in checks and writes output to `output.jsonl`.
 
+## Run with Docker
+
+You can build and run the scraper in a container without creating a local
+virtual environment.
+
+Build the image:
+
+```bash
+docker build -t maps-scraper:latest .
+```
+
+Run the scraper:
+
+```bash
+docker run --rm -v "$PWD:/app" maps-scraper:latest
+```
+
+The output files are written to your local repository directory because the
+project root is mounted at `/app`.
+
 By default, `BaseScraper.run()` enables checkpoint persistence and progress
 reporting even when you do not pass a `Checkpoint` instance.
 
