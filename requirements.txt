@@ -4,6 +4,9 @@
 playwright>=1.40.0
 python-dotenv>=1.0.0
 
+# Test dependencies
+pytest-asyncio>=1.3.0
+
 # Optional dependencies for enhanced terminal output
 # Install with: pip install rich
 rich>=13.0.0
