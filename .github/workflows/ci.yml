@@ -7,6 +7,8 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,4 +30,4 @@ jobs:
         run: ruff check task/ tests/
 
       - name: Run unit tests
-        run: pytest tests/ -v
+        run: python -m pytest tests/ -v
